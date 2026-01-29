@@ -1,12 +1,12 @@
-from flask import Flask, jsonify
-import threading
+from flask import Flask, jsonify, Response
 import time
+import threading
 from datetime import datetime
 
 app = Flask(__name__)
 
-# Stato del bot (paper trading)
-stato_bot = {
+# ===== STATO BOT =====
+stato = {
     "capitale_iniziale": 100.0,
     "capitale_attuale": 100.0,
     "numero_trade": 0,
@@ -16,33 +16,62 @@ stato_bot = {
     "ultimo_aggiornamento": ""
 }
 
-def loop_bot():
-    """Simulazione continua del bot"""
+# ===== LOGICA BOT (SIMULATA) =====
+def bot_loop():
     while True:
-        time.sleep(10)  # ogni 10 secondi
+        time.sleep(10)
 
-        # simulazione finta di un trade
-        stato_bot["numero_trade"] += 1
-        stato_bot["capitale_attuale"] += 0.5
-
-        stato_bot["profitto_euro"] = round(
-            stato_bot["capitale_attuale"] - stato_bot["capitale_iniziale"], 2
+        stato["numero_trade"] += 1
+        stato["capitale_attuale"] += 1.5
+        stato["profitto_euro"] = stato["capitale_attuale"] - stato["capitale_iniziale"]
+        stato["profitto_percento"] = round(
+            (stato["profitto_euro"] / stato["capitale_iniziale"]) * 100, 2
         )
-        stato_bot["profitto_percento"] = round(
-            (stato_bot["profitto_euro"] / stato_bot["capitale_iniziale"]) * 100, 2
-        )
-        stato_bot["ultimo_aggiornamento"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        stato["ultimo_aggiornamento"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-        print("BOT ATTIVO | Stato aggiornato")
+# ===== AVVIO THREAD BOT =====
+threading.Thread(target=bot_loop, daemon=True).start()
 
-@app.route("/")
-def home():
-    return "🤖 BOT PAPER TRADING ATTIVO"
-
+# ===== PAGINA STATUS AUTO-REFRESH =====
 @app.route("/status")
-def status():
-    return jsonify(stato_bot)
+def status_page():
+    html = f"""
+    <html>
+    <head>
+        <title>Crypto Bot – Status</title>
+        <meta http-equiv="refresh" content="5">
+        <style>
+            body {{
+                font-family: Arial;
+                background: #0f172a;
+                color: #e5e7eb;
+                padding: 20px;
+            }}
+            .box {{
+                background: #020617;
+                padding: 20px;
+                border-radius: 10px;
+                width: 400px;
+            }}
+            h1 {{ color: #22c55e; }}
+        </style>
+    </head>
+    <body>
+        <div class="box">
+            <h1>🤖 BOT PAPER TRADING</h1>
+            <p><b>Capitale iniziale:</b> €{stato["capitale_iniziale"]}</p>
+            <p><b>Capitale attuale:</b> €{stato["capitale_attuale"]}</p>
+            <p><b>Numero trade:</b> {stato["numero_trade"]}</p>
+            <p><b>Profitto €:</b> €{stato["profitto_euro"]}</p>
+            <p><b>Profitto %:</b> {stato["profitto_percento"]}%</p>
+            <p><b>Ultimo update:</b> {stato["ultimo_aggiornamento"]}</p>
+            <p><i>Auto-refresh ogni 5 secondi</i></p>
+        </div>
+    </body>
+    </html>
+    """
+    return Response(html, mimetype="text/html")
 
+# ===== AVVIO SERVER =====
 if __name__ == "__main__":
-    # Avvio thread del bot
-    t = threading.Thread(target=loop_bot, daemon=True_
+    app.run(host="0.0.0.0", port=10000)

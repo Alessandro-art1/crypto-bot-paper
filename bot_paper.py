@@ -92,8 +92,9 @@ def leggi_trades():
         return list(reader)
 
 @app.route("/")
-def dashboard():
-    trades = leggi_trades()
+def home():
+    return jsonify({"stato": "BOT ATTIVO"})
+
 
     capitale_attuale = CAPITALE_INIZIALE
     if trades:

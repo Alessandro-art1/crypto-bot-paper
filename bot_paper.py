@@ -8,6 +8,7 @@ import threading
 
 app = Flask(__name__)
 
+# ================= CONFIG =================
 CAPITALE_INIZIALE = 100.0
 capitale = CAPITALE_INIZIALE
 LOG_FILE = "trades.csv"
@@ -15,9 +16,9 @@ LOG_FILE = "trades.csv"
 prezzi = [100.0]
 posizione_aperta = False
 prezzo_ingresso = 0.0
+bot_avviato = False
 
-# ---------- UTILS ----------
-
+# ================= UTILS =================
 def calcola_rsi(prezzi, periodi=14):
     if len(prezzi) < periodi + 1:
         return 50
@@ -41,12 +42,13 @@ def calcola_rsi(prezzi, periodi=14):
 
 def salva_trade(tipo, prezzo):
     global capitale
-
     file_esiste = os.path.exists(LOG_FILE)
+
     with open(LOG_FILE, mode="a", newline="") as f:
         writer = csv.writer(f)
         if not file_esiste:
             writer.writerow(["data", "tipo", "prezzo", "capitale"])
+
         writer.writerow([
             datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             tipo,
@@ -54,13 +56,11 @@ def salva_trade(tipo, prezzo):
             round(capitale, 2)
         ])
 
-# ---------- BOT LOGIC ----------
-
+# ================= BOT LOGIC =================
 def trading_bot():
     global capitale, posizione_aperta, prezzo_ingresso
 
     while True:
-        # prezzo simulato
         nuovo_prezzo = prezzi[-1] + random.uniform(-1, 1)
         prezzi.append(round(nuovo_prezzo, 2))
 
@@ -69,22 +69,4 @@ def trading_bot():
         if rsi < 30 and not posizione_aperta:
             posizione_aperta = True
             prezzo_ingresso = nuovo_prezzo
-            salva_trade("BUY", nuovo_prezzo)
-
-        elif rsi > 70 and posizione_aperta:
-            profitto = (nuovo_prezzo - prezzo_ingresso) / prezzo_ingresso
-            capitale *= (1 + profitto)
-            posizione_aperta = False
-            salva_trade("SELL", nuovo_prezzo)
-
-        time.sleep(15)  # ogni 15 secondi (simula timeframe)
-
-# ---------- DASHBOARD ----------
-
-@app.route("/")
-def dashboard():
-    profitto = capitale - CAPITALE_INIZIALE
-    profitto_pct = (profitto / CAPITALE_INIZIALE) * 100
-
-    return jsonify({
-        "stato": "BOT ATTIVO (RSI PA
+            salva

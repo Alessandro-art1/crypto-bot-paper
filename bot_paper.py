@@ -1,57 +1,48 @@
 from flask import Flask, jsonify
-from threading import Thread
-from datetime import datetime
+import threading
 import time
-import random
-import os
+from datetime import datetime
 
 app = Flask(__name__)
 
-CAPITALE_INIZIALE = 100.0
-capitale = CAPITALE_INIZIALE
-numero_trade = 0
-ultimo_update = None
+# Stato del bot (paper trading)
+stato_bot = {
+    "capitale_iniziale": 100.0,
+    "capitale_attuale": 100.0,
+    "numero_trade": 0,
+    "profitto_euro": 0.0,
+    "profitto_percento": 0.0,
+    "stato": "BOT ATTIVO (PAPER TRADING)",
+    "ultimo_aggiornamento": ""
+}
 
-
-def bot_loop():
-    global capitale, numero_trade, ultimo_update
-
+def loop_bot():
+    """Simulazione continua del bot"""
     while True:
-        # simulazione profitto/perdita
-        variazione = random.uniform(-0.5, 0.7)
-        capitale += variazione
-        capitale = round(capitale, 2)
+        time.sleep(10)  # ogni 10 secondi
 
-        numero_trade += 1
-        ultimo_update = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        # simulazione finta di un trade
+        stato_bot["numero_trade"] += 1
+        stato_bot["capitale_attuale"] += 0.5
 
-        print(f"TRADE {numero_trade} | capitale: {capitale}")
-        time.sleep(20)  # ogni 20 secondi
+        stato_bot["profitto_euro"] = round(
+            stato_bot["capitale_attuale"] - stato_bot["capitale_iniziale"], 2
+        )
+        stato_bot["profitto_percento"] = round(
+            (stato_bot["profitto_euro"] / stato_bot["capitale_iniziale"]) * 100, 2
+        )
+        stato_bot["ultimo_aggiornamento"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
+        print("BOT ATTIVO | Stato aggiornato")
 
 @app.route("/")
 def home():
-    return "BOT ATTIVO (PAPER TRADING)"
-
+    return "🤖 BOT PAPER TRADING ATTIVO"
 
 @app.route("/status")
 def status():
-    profitto = round(capitale - CAPITALE_INIZIALE, 2)
-    profitto_pct = round((profitto / CAPITALE_INIZIALE) * 100, 2)
-
-    return jsonify({
-        "stato": "BOT ATTIVO (PAPER TRADING)",
-        "capitale_iniziale": CAPITALE_INIZIALE,
-        "capitale_attuale": capitale,
-        "numero_trade": numero_trade,
-        "profitto_euro": profitto,
-        "profitto_percento": profitto_pct,
-        "ultimo_aggiornamento": ultimo_update
-    })
-
+    return jsonify(stato_bot)
 
 if __name__ == "__main__":
-    Thread(target=bot_loop, daemon=True).start()
-
-    port = int(os.environ.get("PORT", 8080))
-    app.run(host="0.0.0.0", port=port)
+    # Avvio thread del bot
+    t = threading.Thread(target=loop_bot, daemon=True_

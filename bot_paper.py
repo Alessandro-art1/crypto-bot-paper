@@ -1,72 +1,57 @@
 from flask import Flask, jsonify
+from threading import Thread
 from datetime import datetime
-import csv
-import os
-import random
 import time
-import threading
+import random
+import os
 
 app = Flask(__name__)
 
-# ================= CONFIG =================
 CAPITALE_INIZIALE = 100.0
 capitale = CAPITALE_INIZIALE
-LOG_FILE = "trades.csv"
-
-prezzi = [100.0]
-posizione_aperta = False
-prezzo_ingresso = 0.0
-bot_avviato = False
-
-# ================= UTILS =================
-def calcola_rsi(prezzi, periodi=14):
-    if len(prezzi) < periodi + 1:
-        return 50
-
-    guadagni = []
-    perdite = []
-
-    for i in range(-periodi, 0):
-        delta = prezzi[i] - prezzi[i - 1]
-        if delta >= 0:
-            guadagni.append(delta)
-        else:
-            perdite.append(abs(delta))
-
-    avg_gain = sum(guadagni) / periodi if guadagni else 0
-    avg_loss = sum(perdite) / periodi if perdite else 1
-
-    rs = avg_gain / avg_loss
-    return 100 - (100 / (1 + rs))
+numero_trade = 0
+ultimo_update = None
 
 
-def salva_trade(tipo, prezzo):
-    global capitale
-    file_esiste = os.path.exists(LOG_FILE)
-
-    with open(LOG_FILE, mode="a", newline="") as f:
-        writer = csv.writer(f)
-        if not file_esiste:
-            writer.writerow(["data", "tipo", "prezzo", "capitale"])
-
-        writer.writerow([
-            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            tipo,
-            round(prezzo, 2),
-            round(capitale, 2)
-        ])
-
-# ================= BOT LOGIC =================
-def trading_bot():
-    global capitale, posizione_aperta, prezzo_ingresso
+def bot_loop():
+    global capitale, numero_trade, ultimo_update
 
     while True:
-        nuovo_prezzo = prezzi[-1] + random.uniform(-1, 1)
-        prezzi.append(round(nuovo_prezzo, 2))
+        # simulazione profitto/perdita
+        variazione = random.uniform(-0.5, 0.7)
+        capitale += variazione
+        capitale = round(capitale, 2)
 
-        rsi = calcola_rsi(prezzi)
+        numero_trade += 1
+        ultimo_update = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-        if rsi < 30 and not posizione_aperta:
-            posizione_aperta = True
-            prezzo_ingresso = nuovo_prezzo
-            salva
+        print(f"TRADE {numero_trade} | capitale: {capitale}")
+        time.sleep(20)  # ogni 20 secondi
+
+
+@app.route("/")
+def home():
+    return "BOT ATTIVO (PAPER TRADING)"
+
+
+@app.route("/status")
+def status():
+    profitto = round(capitale - CAPITALE_INIZIALE, 2)
+    profitto_pct = round((profitto / CAPITALE_INIZIALE) * 100, 2)
+
+    return jsonify({
+        "stato": "BOT ATTIVO (PAPER TRADING)",
+        "capitale_iniziale": CAPITALE_INIZIALE,
+        "capitale_attuale": capitale,
+        "numero_trade": numero_trade,
+        "profitto_euro": profitto,
+        "profitto_percento": profitto_pct,
+        "ultimo_aggiornamento": ultimo_update
+    })
+
+
+if __name__ == "__main__":
+    Thread(target=bot_loop, daemon=True).start()
+
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host="0.0.0.0", port=port)

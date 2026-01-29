@@ -61,6 +61,19 @@ while True:
                 posizione = None
 
         time.sleep(60)
+        import csv
+import os
+
+LOG_FILE = "trades.csv"
+
+def salva_trade(data, tipo, prezzo, capitale):
+    file_esiste = os.path.isfile(LOG_FILE)
+    with open(LOG_FILE, mode="a", newline="") as f:
+        writer = csv.writer(f)
+        if not file_esiste:
+            writer.writerow(["data", "tipo", "prezzo", "capitale"])
+        writer.writerow([data, tipo, prezzo, round(capitale, 2)])
+
 
     except Exception as e:
         print("Errore:", e)

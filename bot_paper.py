@@ -1,67 +1,67 @@
-from flask import Flask
-from threading import Thread
 import ccxt
 import pandas as pd
 import ta
 import time
 from datetime import datetime
+from flask import Flask
+from threading import Thread
 
-app = Flask('')
+# ===== FLASK KEEP ALIVE =====
+app = Flask(__name__)
 
-@app.route('/')
+@app.route("/")
 def home():
-    return "BOT ATTIVO"
+    return "BOT AVVIATO (PAPER TRADING)"
 
 def run():
-    app.run(host='0.0.0.0', port=8080)
+    app.run(host="0.0.0.0", port=8080)
 
 Thread(target=run).start()
 
+# ===== CONFIG =====
 CAPITALE_INIZIALE = 100.0
 capitale = CAPITALE_INIZIALE
 posizione = None
 prezzo_ingresso = 0
 
 exchange = ccxt.binance()
-symbol = 'BTC/USDT'
-timeframe = '15m'
 
-def log(msg):
-    print(msg)
-    with open("log.txt", "a") as f:
-        f.write(f"{datetime.now()} - {msg}\n")
+symbol = "BTC/USDT"
+timeframe = "15m"
 
-log("=== BOT AVVIATO (PAPER TRADING) ===")
+# ===== FUNZIONI =====
+def get_data():
+    ohlcv = exchange.fetch_ohlcv(symbol, timeframe, limit=200)
+    df = pd.DataFrame(ohlcv, columns=["time","open","high","low","close","volume"])
+    df["rsi"] = ta.momentum.RSIIndicator(df["close"]).rsi()
+    df["ema50"] = ta.trend.EMAIndicator(df["close"], 50).ema_indicator()
+    df["ema200"] = ta.trend.EMAIndicator(df["close"], 200).ema_indicator()
+    return df
+
+# ===== LOOP =====
+print("=== BOT AVVIATO (PAPER TRADING) ===")
 
 while True:
     try:
-        ohlcv = exchange.fetch_ohlcv(symbol, timeframe, limit=100)
-        df = pd.DataFrame(ohlcv, columns=['t','o','h','l','c','v'])
-
-        df['ema9'] = ta.trend.ema_indicator(df['c'], 9)
-        df['ema21'] = ta.trend.ema_indicator(df['c'], 21)
-        df['rsi'] = ta.momentum.rsi(df['c'], 14)
-
+        df = get_data()
         last = df.iloc[-1]
-        prezzo = last['c']
+        prezzo = last["close"]
 
         if posizione is None:
-            if last['ema9'] > last['ema21'] and last['rsi'] < 30:
-                posizione = capitale / prezzo
+            if last["rsi"] < 30 and last["ema50"] > last["ema200"]:
+                posizione = "LONG"
                 prezzo_ingresso = prezzo
-                capitale = 0
-                log(f"BUY a {prezzo:.2f}")
-
+                print(f"[BUY] {prezzo}")
         else:
-            profit = (prezzo - prezzo_ingresso) / prezzo_ingresso
+            profitto = (prezzo - prezzo_ingresso) / prezzo_ingresso * 100
 
-            if profit >= 0.03 or profit <= -0.02 or last['rsi'] > 70:
-                capitale = posizione * prezzo
-                log(f"SELL a {prezzo:.2f} | Capitale: {capitale:.2f}€")
+            if last["rsi"] > 70 or profitto >= 4 or profitto <= -2:
+                capitale *= (1 + profitto / 100)
+                print(f"[SELL] {prezzo} | Profitto: {profitto:.2f}% | Capitale: {capitale:.2f}€")
                 posizione = None
 
         time.sleep(60)
 
     except Exception as e:
-        log(f"ERRORE: {e}")
+        print("Errore:", e)
         time.sleep(60)

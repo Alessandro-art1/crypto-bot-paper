@@ -11,6 +11,8 @@ posizione_aperta = False
 numero_trade = 0
 
 prezzi = []
+ultimo_prezzo = 0
+ultimo_update = "—"
 
 # ---------- RSI ----------
 def calcola_rsi(prezzi, periodi=14):
@@ -28,38 +30,44 @@ def calcola_rsi(prezzi, periodi=14):
     rs = avg_gain / avg_loss
     return round(100 - (100 / (1 + rs)), 2)
 
-# ---------- PREZZO BTC REALE ----------
+# ---------- PREZZO BTC ----------
 def get_btc_price():
-    url = "https://api.coingecko.com/api/v3/simple/price"
-    params = {"ids": "bitcoin", "vs_currencies": "eur"}
-    r = requests.get(url, params=params, timeout=10)
-    return r.json()["bitcoin"]["eur"]
+    try:
+        url = "https://api.coingecko.com/api/v3/simple/price"
+        params = {"ids": "bitcoin", "vs_currencies": "eur"}
+        r = requests.get(url, params=params, timeout=10)
+        return r.json()["bitcoin"]["eur"]
+    except:
+        return None
 
 # ---------- BOT ----------
 def trading_bot():
     global capitale, btc_qty, posizione_aperta, numero_trade
+    global ultimo_prezzo, ultimo_update
 
     while True:
         prezzo = get_btc_price()
-        prezzi.append(prezzo)
 
-        rsi = calcola_rsi(prezzi)
+        if prezzo:
+            ultimo_prezzo = prezzo
+            ultimo_update = datetime.now().strftime("%H:%M:%S")
+            prezzi.append(prezzo)
 
-        # BUY
-        if rsi < 45 and not posizione_aperta:
-            btc_qty = capitale / prezzo
-            capitale = 0
-            posizione_aperta = True
-            numero_trade += 1
+            rsi = calcola_rsi(prezzi)
 
-        # SELL
-        elif rsi > 55 and posizione_aperta:
-            capitale = btc_qty * prezzo
-            btc_qty = 0
-            posizione_aperta = False
-            numero_trade += 1
+            if rsi < 45 and not posizione_aperta:
+                btc_qty = capitale / prezzo
+                capitale = 0
+                posizione_aperta = True
+                numero_trade += 1
 
-        time.sleep(15)
+            elif rsi > 55 and posizione_aperta:
+                capitale = btc_qty * prezzo
+                btc_qty = 0
+                posizione_aperta = False
+                numero_trade += 1
+
+        time.sleep(20)
 
 # ---------- UI ----------
 HTML = """
@@ -68,22 +76,21 @@ HTML = """
 <head>
 <meta charset="utf-8">
 <meta http-equiv="refresh" content="10">
-<title>Crypto Bot Reale</title>
+<title>Crypto Bot BTC</title>
 <style>
 body { background:#0f172a; color:#e5e7eb; font-family:Arial; text-align:center }
-.box { background:#1e293b; padding:20px; margin:20px auto; width:360px; border-radius:12px }
-.green { color:#4ade80 }
-.red { color:#f87171 }
+.box { background:#1e293b; padding:20px; margin:20px auto; width:380px; border-radius:12px }
 </style>
 </head>
 <body>
-<h1>🤖 Crypto Bot – BTC Reale</h1>
+<h1>🤖 Crypto Bot – BTC reale</h1>
 <div class="box">
-<p>⏱ {{time}}</p>
-<p>💰 Capitale €: {{capitale}}</p>
-<p>🪙 BTC qty: {{btc}}</p>
+<p>⏱ Ora server: {{time}}</p>
+<p>🔁 Ultimo update prezzo: {{update}}</p>
 <p>📈 Prezzo BTC: {{prezzo}} €</p>
 <p>📉 RSI: {{rsi}}</p>
+<p>💰 Capitale €: {{capitale}}</p>
+<p>🪙 BTC qty: {{btc}}</p>
 <p>🔄 Trade: {{trade}}</p>
 <p>⚙ Stato: {{stato}}</p>
 </div>
@@ -93,15 +100,15 @@ body { background:#0f172a; color:#e5e7eb; font-family:Arial; text-align:center }
 
 @app.route("/")
 def dashboard():
-    prezzo = prezzi[-1] if prezzi else 0
     rsi = calcola_rsi(prezzi)
     return render_template_string(
         HTML,
         time=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        update=ultimo_update,
+        prezzo=ultimo_prezzo,
+        rsi=rsi,
         capitale=round(capitale, 2),
         btc=round(btc_qty, 6),
-        prezzo=prezzo,
-        rsi=rsi,
         trade=numero_trade,
         stato="IN POSIZIONE BTC" if posizione_aperta else "IN ATTESA"
     )

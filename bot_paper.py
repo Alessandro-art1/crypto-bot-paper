@@ -1,10 +1,6 @@
-from flask import Flask, jsonify, render_template_string
+from flask import Flask, render_template_string
 from datetime import datetime
-import csv
-import os
-import random
-import time
-import threading
+import csv, os, random, time, threading
 
 app = Flask(__name__)
 
@@ -21,7 +17,6 @@ numero_trade = 0
 def calcola_rsi(prezzi, periodi=14):
     if len(prezzi) < periodi + 1:
         return 50
-
     guadagni, perdite = [], []
     for i in range(-periodi, 0):
         delta = prezzi[i] - prezzi[i - 1]
@@ -29,7 +24,6 @@ def calcola_rsi(prezzi, periodi=14):
             guadagni.append(delta)
         else:
             perdite.append(abs(delta))
-
     avg_gain = sum(guadagni) / periodi if guadagni else 0
     avg_loss = sum(perdite) / periodi if perdite else 1
     rs = avg_gain / avg_loss
@@ -37,9 +31,8 @@ def calcola_rsi(prezzi, periodi=14):
 
 # ---------- LOG ----------
 def salva_trade(tipo, prezzo):
-    global capitale, numero_trade
+    global numero_trade
     numero_trade += 1
-
     file_esiste = os.path.exists(LOG_FILE)
     with open(LOG_FILE, "a", newline="") as f:
         writer = csv.writer(f)
@@ -55,11 +48,9 @@ def salva_trade(tipo, prezzo):
 # ---------- BOT ----------
 def trading_bot():
     global capitale, posizione_aperta, prezzo_ingresso
-
     while True:
         nuovo_prezzo = round(prezzi[-1] + random.uniform(-1.5, 1.5), 2)
         prezzi.append(nuovo_prezzo)
-
         rsi = calcola_rsi(prezzi)
 
         if rsi < 45 and not posizione_aperta:
@@ -80,29 +71,27 @@ HTML = """
 <!DOCTYPE html>
 <html>
 <head>
-    <meta charset="utf-8">
-    <title>Crypto Bot Paper</title>
-    <meta http-equiv="refresh" content="5">
-    <style>
-        body { font-family: Arial; background:#0f172a; color:#e5e7eb; text-align:center }
-        .box { background:#1e293b; padding:20px; margin:20px auto; width:320px; border-radius:12px }
-        h1 { color:#38bdf8 }
-        .green { color:#4ade80 }
-        .red { color:#f87171 }
-    </style>
+<meta charset="utf-8">
+<meta http-equiv="refresh" content="5">
+<title>Crypto Bot</title>
+<style>
+body { background:#0f172a; color:#e5e7eb; font-family:Arial; text-align:center }
+.box { background:#1e293b; padding:20px; margin:20px auto; width:320px; border-radius:12px }
+.green { color:#4ade80 }
+.red { color:#f87171 }
+</style>
 </head>
 <body>
-    <h1>🤖 Crypto Bot (Paper Trading)</h1>
-
-    <div class="box">
-        <p>⏱ Aggiornamento: {{time}}</p>
-        <p>💰 Capitale: <b>{{capitale}} €</b></p>
-        <p>📊 Profitto: <b class="{{color}}">{{profitto}} € ({{profitto_pct}}%)</b></p>
-        <p>🔄 Trade: {{trade}}</p>
-        <p>📈 Prezzo: {{prezzo}}</p>
-        <p>📉 RSI: {{rsi}}</p>
-        <p>⚙ Stato: {{stato}}</p>
-    </div>
+<h1>🤖 Crypto Bot (Paper)</h1>
+<div class="box">
+<p>⏱ {{time}}</p>
+<p>💰 Capitale: {{capitale}} €</p>
+<p>📊 Profitto: <span class="{{color}}">{{profitto}} € ({{profitto_pct}}%)</span></p>
+<p>🔄 Trade: {{trade}}</p>
+<p>📈 Prezzo: {{prezzo}}</p>
+<p>📉 RSI: {{rsi}}</p>
+<p>⚙ Stato: {{stato}}</p>
+</div>
 </body>
 </html>
 """
@@ -112,7 +101,6 @@ def dashboard():
     profitto = round(capitale - CAPITALE_INIZIALE, 2)
     profitto_pct = round((profitto / CAPITALE_INIZIALE) * 100, 2)
     color = "green" if profitto >= 0 else "red"
-
     return render_template_string(
         HTML,
         time=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -127,7 +115,7 @@ def dashboard():
     )
 
 # ---------- START ----------
-threading.Thread(target=trading_bot, daemon=True).start()
-
 if __name__ == "__main__":
-    app.run()
+    threading.Thread(target=trading_bot, daemon=True).start()
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)

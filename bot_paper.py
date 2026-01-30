@@ -1,131 +1,133 @@
-from flask import Flask, jsonify
-import threading
-import time
-import requests
+from flask import Flask, jsonify, render_template_string
 from datetime import datetime
+import csv
+import os
+import random
+import time
+import threading
 
 app = Flask(__name__)
 
-# ===== CONFIG =====
-SYMBOLS = ["BTCUSDT", "ETHUSDT", "SOLUSDT"]
-INTERVALLO = 15
-RSI_BUY = 45
-RSI_SELL = 55
-RSI_PERIOD = 14
+CAPITALE_INIZIALE = 100.0
+capitale = CAPITALE_INIZIALE
+LOG_FILE = "trades.csv"
 
-# ===== STATO =====
-stato = {
-    "capitale_iniziale": 100.0,
-    "capitale_attuale": 100.0,
-    "profitto_euro": 0.0,
-    "profitto_percento": 0.0,
-    "numero_trade": 0,
-    "symbol_attivo": None,
-    "posizione_aperta": False,
-    "prezzo_ingresso": 0.0,
-    "ultimo_aggiornamento": ""
-}
+prezzi = [100.0]
+posizione_aperta = False
+prezzo_ingresso = 0.0
+numero_trade = 0
 
-prezzi = {s: [] for s in SYMBOLS}
-
-# ===== RSI =====
-def calcola_rsi(prices, period=14):
-    if len(prices) < period + 1:
+# ---------- RSI ----------
+def calcola_rsi(prezzi, periodi=14):
+    if len(prezzi) < periodi + 1:
         return 50
-    gains, losses = [], []
-    for i in range(-period, 0):
-        delta = prices[i] - prices[i - 1]
+
+    guadagni, perdite = [], []
+    for i in range(-periodi, 0):
+        delta = prezzi[i] - prezzi[i - 1]
         if delta >= 0:
-            gains.append(delta)
+            guadagni.append(delta)
         else:
-            losses.append(abs(delta))
-    avg_gain = sum(gains) / period if gains else 0.0001
-    avg_loss = sum(losses) / period if losses else 0.0001
+            perdite.append(abs(delta))
+
+    avg_gain = sum(guadagni) / periodi if guadagni else 0
+    avg_loss = sum(perdite) / periodi if perdite else 1
     rs = avg_gain / avg_loss
     return round(100 - (100 / (1 + rs)), 2)
 
-# ===== PREZZI =====
-def get_price(symbol):
-    url = f"https://api.binance.com/api/v3/ticker/price?symbol={symbol}"
-    return float(requests.get(url, timeout=5).json()["price"])
+# ---------- LOG ----------
+def salva_trade(tipo, prezzo):
+    global capitale, numero_trade
+    numero_trade += 1
 
-# ===== BOT =====
-def bot_loop():
+    file_esiste = os.path.exists(LOG_FILE)
+    with open(LOG_FILE, "a", newline="") as f:
+        writer = csv.writer(f)
+        if not file_esiste:
+            writer.writerow(["data", "tipo", "prezzo", "capitale"])
+        writer.writerow([
+            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            tipo,
+            round(prezzo, 2),
+            round(capitale, 2)
+        ])
+
+# ---------- BOT ----------
+def trading_bot():
+    global capitale, posizione_aperta, prezzo_ingresso
+
     while True:
-        try:
-            rsi_map = {}
+        nuovo_prezzo = round(prezzi[-1] + random.uniform(-1.5, 1.5), 2)
+        prezzi.append(nuovo_prezzo)
 
-            for s in SYMBOLS:
-                p = get_price(s)
-                prezzi[s].append(p)
-                rsi_map[s] = calcola_rsi(prezzi[s])
+        rsi = calcola_rsi(prezzi)
 
-            # BUY
-            if not stato["posizione_aperta"]:
-                migliore = min(rsi_map, key=rsi_map.get)
-                if rsi_map[migliore] < RSI_BUY:
-                    stato["posizione_aperta"] = True
-                    stato["symbol_attivo"] = migliore
-                    stato["prezzo_ingresso"] = prezzi[migliore][-1]
-                    stato["numero_trade"] += 1
+        if rsi < 45 and not posizione_aperta:
+            posizione_aperta = True
+            prezzo_ingresso = nuovo_prezzo
+            salva_trade("BUY", nuovo_prezzo)
 
-            # SELL
-            else:
-                s = stato["symbol_attivo"]
-                rsi_attuale = calcola_rsi(prezzi[s])
-                if rsi_attuale > RSI_SELL:
-                    prezzo = prezzi[s][-1]
-                    profitto = (prezzo - stato["prezzo_ingresso"]) / stato["prezzo_ingresso"]
-                    stato["capitale_attuale"] *= (1 + profitto)
-                    stato["posizione_aperta"] = False
-                    stato["symbol_attivo"] = None
+        elif rsi > 55 and posizione_aperta:
+            profitto = (nuovo_prezzo - prezzo_ingresso) / prezzo_ingresso
+            capitale *= (1 + profitto)
+            posizione_aperta = False
+            salva_trade("SELL", nuovo_prezzo)
 
-            stato["profitto_euro"] = round(
-                stato["capitale_attuale"] - stato["capitale_iniziale"], 2
-            )
-            stato["profitto_percento"] = round(
-                stato["profitto_euro"] / stato["capitale_iniziale"] * 100, 2
-            )
-            stato["ultimo_aggiornamento"] = datetime.now().strftime("%H:%M:%S")
+        time.sleep(5)
 
-        except Exception as e:
-            print("Errore:", e)
-
-        time.sleep(INTERVALLO)
-
-threading.Thread(target=bot_loop, daemon=True).start()
-
-# ===== API =====
-@app.route("/api/status")
-def api_status():
-    return jsonify(stato)
-
-# ===== DASHBOARD =====
-@app.route("/")
-def dashboard():
-    return f"""
+# ---------- UI ----------
+HTML = """
 <!DOCTYPE html>
 <html>
 <head>
-<title>Multi Crypto Bot</title>
-<style>
-body {{ background:#0f172a; color:#e5e7eb; font-family:Arial; }}
-.box {{ background:#020617; padding:20px; width:420px; border-radius:10px; }}
-</style>
+    <meta charset="utf-8">
+    <title>Crypto Bot Paper</title>
+    <meta http-equiv="refresh" content="5">
+    <style>
+        body { font-family: Arial; background:#0f172a; color:#e5e7eb; text-align:center }
+        .box { background:#1e293b; padding:20px; margin:20px auto; width:320px; border-radius:12px }
+        h1 { color:#38bdf8 }
+        .green { color:#4ade80 }
+        .red { color:#f87171 }
+    </style>
 </head>
 <body>
-<div class="box">
-<h2>🤖 MULTI CRYPTO BOT</h2>
-<p>Capitale: €{stato["capitale_attuale"]:.2f}</p>
-<p>Profitto: €{stato["profitto_euro"]} ({stato["profitto_percento"]}%)</p>
-<p>Trade: {stato["numero_trade"]}</p>
-<p>Posizione: {"APERTO su " + stato["symbol_attivo"] if stato["posizione_aperta"] else "CHIUSO"}</p>
-<p>Update: {stato["ultimo_aggiornamento"]}</p>
-<p><i>RSI BUY &lt; {RSI_BUY} | RSI SELL &gt; {RSI_SELL}</i></p>
-</div>
+    <h1>🤖 Crypto Bot (Paper Trading)</h1>
+
+    <div class="box">
+        <p>⏱ Aggiornamento: {{time}}</p>
+        <p>💰 Capitale: <b>{{capitale}} €</b></p>
+        <p>📊 Profitto: <b class="{{color}}">{{profitto}} € ({{profitto_pct}}%)</b></p>
+        <p>🔄 Trade: {{trade}}</p>
+        <p>📈 Prezzo: {{prezzo}}</p>
+        <p>📉 RSI: {{rsi}}</p>
+        <p>⚙ Stato: {{stato}}</p>
+    </div>
 </body>
 </html>
 """
 
+@app.route("/")
+def dashboard():
+    profitto = round(capitale - CAPITALE_INIZIALE, 2)
+    profitto_pct = round((profitto / CAPITALE_INIZIALE) * 100, 2)
+    color = "green" if profitto >= 0 else "red"
+
+    return render_template_string(
+        HTML,
+        time=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        capitale=round(capitale, 2),
+        profitto=profitto,
+        profitto_pct=profitto_pct,
+        trade=numero_trade,
+        prezzo=prezzi[-1],
+        rsi=calcola_rsi(prezzi),
+        stato="POSIZIONE APERTA" if posizione_aperta else "IN ATTESA",
+        color=color
+    )
+
+# ---------- START ----------
+threading.Thread(target=trading_bot, daemon=True).start()
+
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=10000)
+    app.run()

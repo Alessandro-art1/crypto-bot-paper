@@ -1,162 +1,131 @@
-from flask import Flask, jsonify, render_template_string
-from datetime import datetime
-import csv
-import os
-import random
-import time
+from flask import Flask, jsonify
 import threading
+import time
 import requests
+from datetime import datetime
 
 app = Flask(__name__)
 
 # ===== CONFIG =====
-CAPITALE_INIZIALE = 100.0
-capitale = CAPITALE_INIZIALE
-LOG_FILE = "trades.csv"
+SYMBOLS = ["BTCUSDT", "ETHUSDT", "SOLUSDT"]
+INTERVALLO = 15
+RSI_BUY = 45
+RSI_SELL = 55
+RSI_PERIOD = 14
 
-prezzi = []
-posizione_aperta = False
-prezzo_ingresso = 0.0
-numero_trade = 0
+# ===== STATO =====
+stato = {
+    "capitale_iniziale": 100.0,
+    "capitale_attuale": 100.0,
+    "profitto_euro": 0.0,
+    "profitto_percento": 0.0,
+    "numero_trade": 0,
+    "symbol_attivo": None,
+    "posizione_aperta": False,
+    "prezzo_ingresso": 0.0,
+    "ultimo_aggiornamento": ""
+}
 
-# ===== TEMPLATE HTML =====
-HTML = """
+prezzi = {s: [] for s in SYMBOLS}
+
+# ===== RSI =====
+def calcola_rsi(prices, period=14):
+    if len(prices) < period + 1:
+        return 50
+    gains, losses = [], []
+    for i in range(-period, 0):
+        delta = prices[i] - prices[i - 1]
+        if delta >= 0:
+            gains.append(delta)
+        else:
+            losses.append(abs(delta))
+    avg_gain = sum(gains) / period if gains else 0.0001
+    avg_loss = sum(losses) / period if losses else 0.0001
+    rs = avg_gain / avg_loss
+    return round(100 - (100 / (1 + rs)), 2)
+
+# ===== PREZZI =====
+def get_price(symbol):
+    url = f"https://api.binance.com/api/v3/ticker/price?symbol={symbol}"
+    return float(requests.get(url, timeout=5).json()["price"])
+
+# ===== BOT =====
+def bot_loop():
+    while True:
+        try:
+            rsi_map = {}
+
+            for s in SYMBOLS:
+                p = get_price(s)
+                prezzi[s].append(p)
+                rsi_map[s] = calcola_rsi(prezzi[s])
+
+            # BUY
+            if not stato["posizione_aperta"]:
+                migliore = min(rsi_map, key=rsi_map.get)
+                if rsi_map[migliore] < RSI_BUY:
+                    stato["posizione_aperta"] = True
+                    stato["symbol_attivo"] = migliore
+                    stato["prezzo_ingresso"] = prezzi[migliore][-1]
+                    stato["numero_trade"] += 1
+
+            # SELL
+            else:
+                s = stato["symbol_attivo"]
+                rsi_attuale = calcola_rsi(prezzi[s])
+                if rsi_attuale > RSI_SELL:
+                    prezzo = prezzi[s][-1]
+                    profitto = (prezzo - stato["prezzo_ingresso"]) / stato["prezzo_ingresso"]
+                    stato["capitale_attuale"] *= (1 + profitto)
+                    stato["posizione_aperta"] = False
+                    stato["symbol_attivo"] = None
+
+            stato["profitto_euro"] = round(
+                stato["capitale_attuale"] - stato["capitale_iniziale"], 2
+            )
+            stato["profitto_percento"] = round(
+                stato["profitto_euro"] / stato["capitale_iniziale"] * 100, 2
+            )
+            stato["ultimo_aggiornamento"] = datetime.now().strftime("%H:%M:%S")
+
+        except Exception as e:
+            print("Errore:", e)
+
+        time.sleep(INTERVALLO)
+
+threading.Thread(target=bot_loop, daemon=True).start()
+
+# ===== API =====
+@app.route("/api/status")
+def api_status():
+    return jsonify(stato)
+
+# ===== DASHBOARD =====
+@app.route("/")
+def dashboard():
+    return f"""
 <!DOCTYPE html>
 <html>
 <head>
-    <title>BOT RSI (BTC)</title>
-    <meta http-equiv="refresh" content="5">
-    <style>
-        body{
-            background: linear-gradient(135deg,#0f172a,#020617);
-            font-family: Arial;
-            color:white;
-            display:flex;
-            justify-content:center;
-            align-items:center;
-            height:100vh;
-        }
-        .card{
-            background:#020617;
-            padding:30px;
-            border-radius:15px;
-            width:350px;
-            box-shadow:0 0 30px rgba(0,255,255,0.15);
-        }
-        h1{margin-bottom:20px;}
-        .row{margin:8px 0;}
-    </style>
+<title>Multi Crypto Bot</title>
+<style>
+body {{ background:#0f172a; color:#e5e7eb; font-family:Arial; }}
+.box {{ background:#020617; padding:20px; width:420px; border-radius:10px; }}
+</style>
 </head>
 <body>
-    <div class="card">
-        <h1>🤖 BOT RSI (BTC)</h1>
-        <div class="row">Prezzo BTC: {{ prezzo }}</div>
-        <div class="row">RSI: {{ rsi }}</div>
-        <div class="row">Capitale: €{{ capitale }}</div>
-        <div class="row">Trade: {{ trade }}</div>
-        <div class="row">Profitto: {{ profitto }} €</div>
-        <div class="row">Posizione: {{ posizione }}</div>
-        <div class="row">Update: {{ update }}</div>
-    </div>
+<div class="box">
+<h2>🤖 MULTI CRYPTO BOT</h2>
+<p>Capitale: €{stato["capitale_attuale"]:.2f}</p>
+<p>Profitto: €{stato["profitto_euro"]} ({stato["profitto_percento"]}%)</p>
+<p>Trade: {stato["numero_trade"]}</p>
+<p>Posizione: {"APERTO su " + stato["symbol_attivo"] if stato["posizione_aperta"] else "CHIUSO"}</p>
+<p>Update: {stato["ultimo_aggiornamento"]}</p>
+<p><i>RSI BUY &lt; {RSI_BUY} | RSI SELL &gt; {RSI_SELL}</i></p>
+</div>
 </body>
 </html>
 """
 
-# ===== UTILS =====
-
-def get_btc_price():
-    try:
-        url = "https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT"
-        r = requests.get(url, timeout=5)
-        data = r.json()
-        return float(data["price"])
-    except:
-        return None
-
-def calcola_rsi(prezzi, periodi=14):
-    if len(prezzi) < periodi + 1:
-        return 50
-
-    guadagni = []
-    perdite = []
-
-    for i in range(-periodi, 0):
-        delta = prezzi[i] - prezzi[i - 1]
-        if delta >= 0:
-            guadagni.append(delta)
-        else:
-            perdite.append(abs(delta))
-
-    avg_gain = sum(guadagni) / periodi if guadagni else 0.0001
-    avg_loss = sum(perdite) / periodi if perdite else 0.0001
-
-    rs = avg_gain / avg_loss
-    return round(100 - (100 / (1 + rs)),2)
-
-def salva_trade(tipo, prezzo):
-    global capitale
-    file_esiste = os.path.exists(LOG_FILE)
-    with open(LOG_FILE, mode="a", newline="") as f:
-        writer = csv.writer(f)
-        if not file_esiste:
-            writer.writerow(["data", "tipo", "prezzo", "capitale"])
-        writer.writerow([
-            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            tipo,
-            round(prezzo, 2),
-            round(capitale, 2)
-        ])
-
-# ===== BOT =====
-
-def trading_bot():
-    global capitale, posizione_aperta, prezzo_ingresso, numero_trade
-
-    while True:
-        prezzo = get_btc_price()
-        if prezzo:
-            prezzi.append(prezzo)
-
-            rsi = calcola_rsi(prezzi)
-
-            if rsi < 30 and not posizione_aperta:
-                posizione_aperta = True
-                prezzo_ingresso = prezzo
-                salva_trade("BUY", prezzo)
-
-            elif rsi > 70 and posizione_aperta:
-                profitto = (prezzo - prezzo_ingresso) / prezzo_ingresso
-                capitale *= (1 + profitto)
-                posizione_aperta = False
-                numero_trade += 1
-                salva_trade("SELL", prezzo)
-
-        time.sleep(10)  # aggiornamento ogni 10 sec
-
-# ===== ROUTE =====
-
-@app.route("/")
-def dashboard():
-    prezzo = prezzi[-1] if prezzi else 0
-    rsi = calcola_rsi(prezzi)
-    profitto = round(capitale - CAPITALE_INIZIALE,2)
-    posizione = "APERTO" if posizione_aperta else "CHIUSO"
-
-    return render_template_string(
-        HTML,
-        prezzo=round(prezzo,2),
-        rsi=rsi,
-        capitale=round(capitale,2),
-        trade=numero_trade,
-        profitto=profitto,
-        posizione=posizione,
-        update=datetime.now().strftime("%H:%M:%S")
-    )
-
-# ===== START =====
-
 if __name__ == "__main__":
-    t = threading.Thread(target=trading_bot)
-    t.daemon = True
-    t.start()
-    app.run(host="0.0.0.0", port=8080)
+    app.run(host="0.0.0.0", port=10000)

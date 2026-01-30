@@ -1,17 +1,16 @@
 from flask import Flask, render_template_string
 from datetime import datetime
-import csv, os, random, time, threading
+import requests, time, threading, os
 
 app = Flask(__name__)
 
 CAPITALE_INIZIALE = 100.0
 capitale = CAPITALE_INIZIALE
-LOG_FILE = "trades.csv"
-
-prezzi = [100.0]
+btc_qty = 0.0
 posizione_aperta = False
-prezzo_ingresso = 0.0
 numero_trade = 0
+
+prezzi = []
 
 # ---------- RSI ----------
 def calcola_rsi(prezzi, periodi=14):
@@ -29,42 +28,38 @@ def calcola_rsi(prezzi, periodi=14):
     rs = avg_gain / avg_loss
     return round(100 - (100 / (1 + rs)), 2)
 
-# ---------- LOG ----------
-def salva_trade(tipo, prezzo):
-    global numero_trade
-    numero_trade += 1
-    file_esiste = os.path.exists(LOG_FILE)
-    with open(LOG_FILE, "a", newline="") as f:
-        writer = csv.writer(f)
-        if not file_esiste:
-            writer.writerow(["data", "tipo", "prezzo", "capitale"])
-        writer.writerow([
-            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            tipo,
-            round(prezzo, 2),
-            round(capitale, 2)
-        ])
+# ---------- PREZZO BTC REALE ----------
+def get_btc_price():
+    url = "https://api.coingecko.com/api/v3/simple/price"
+    params = {"ids": "bitcoin", "vs_currencies": "eur"}
+    r = requests.get(url, params=params, timeout=10)
+    return r.json()["bitcoin"]["eur"]
 
 # ---------- BOT ----------
 def trading_bot():
-    global capitale, posizione_aperta, prezzo_ingresso
+    global capitale, btc_qty, posizione_aperta, numero_trade
+
     while True:
-        nuovo_prezzo = round(prezzi[-1] + random.uniform(-1.5, 1.5), 2)
-        prezzi.append(nuovo_prezzo)
+        prezzo = get_btc_price()
+        prezzi.append(prezzo)
+
         rsi = calcola_rsi(prezzi)
 
+        # BUY
         if rsi < 45 and not posizione_aperta:
+            btc_qty = capitale / prezzo
+            capitale = 0
             posizione_aperta = True
-            prezzo_ingresso = nuovo_prezzo
-            salva_trade("BUY", nuovo_prezzo)
+            numero_trade += 1
 
+        # SELL
         elif rsi > 55 and posizione_aperta:
-            profitto = (nuovo_prezzo - prezzo_ingresso) / prezzo_ingresso
-            capitale *= (1 + profitto)
+            capitale = btc_qty * prezzo
+            btc_qty = 0
             posizione_aperta = False
-            salva_trade("SELL", nuovo_prezzo)
+            numero_trade += 1
 
-        time.sleep(5)
+        time.sleep(15)
 
 # ---------- UI ----------
 HTML = """
@@ -72,24 +67,24 @@ HTML = """
 <html>
 <head>
 <meta charset="utf-8">
-<meta http-equiv="refresh" content="5">
-<title>Crypto Bot</title>
+<meta http-equiv="refresh" content="10">
+<title>Crypto Bot Reale</title>
 <style>
 body { background:#0f172a; color:#e5e7eb; font-family:Arial; text-align:center }
-.box { background:#1e293b; padding:20px; margin:20px auto; width:320px; border-radius:12px }
+.box { background:#1e293b; padding:20px; margin:20px auto; width:360px; border-radius:12px }
 .green { color:#4ade80 }
 .red { color:#f87171 }
 </style>
 </head>
 <body>
-<h1>🤖 Crypto Bot (Paper)</h1>
+<h1>🤖 Crypto Bot – BTC Reale</h1>
 <div class="box">
 <p>⏱ {{time}}</p>
-<p>💰 Capitale: {{capitale}} €</p>
-<p>📊 Profitto: <span class="{{color}}">{{profitto}} € ({{profitto_pct}}%)</span></p>
-<p>🔄 Trade: {{trade}}</p>
-<p>📈 Prezzo: {{prezzo}}</p>
+<p>💰 Capitale €: {{capitale}}</p>
+<p>🪙 BTC qty: {{btc}}</p>
+<p>📈 Prezzo BTC: {{prezzo}} €</p>
 <p>📉 RSI: {{rsi}}</p>
+<p>🔄 Trade: {{trade}}</p>
 <p>⚙ Stato: {{stato}}</p>
 </div>
 </body>
@@ -98,20 +93,17 @@ body { background:#0f172a; color:#e5e7eb; font-family:Arial; text-align:center }
 
 @app.route("/")
 def dashboard():
-    profitto = round(capitale - CAPITALE_INIZIALE, 2)
-    profitto_pct = round((profitto / CAPITALE_INIZIALE) * 100, 2)
-    color = "green" if profitto >= 0 else "red"
+    prezzo = prezzi[-1] if prezzi else 0
+    rsi = calcola_rsi(prezzi)
     return render_template_string(
         HTML,
         time=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         capitale=round(capitale, 2),
-        profitto=profitto,
-        profitto_pct=profitto_pct,
+        btc=round(btc_qty, 6),
+        prezzo=prezzo,
+        rsi=rsi,
         trade=numero_trade,
-        prezzo=prezzi[-1],
-        rsi=calcola_rsi(prezzi),
-        stato="POSIZIONE APERTA" if posizione_aperta else "IN ATTESA",
-        color=color
+        stato="IN POSIZIONE BTC" if posizione_aperta else "IN ATTESA"
     )
 
 # ---------- START ----------

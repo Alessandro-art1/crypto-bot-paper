@@ -53,7 +53,7 @@ async function load() {
         <div class="card">
             <h2>${c}</h2>
             <p>Prezzo: ${v.prezzo} €</p>
-            <p>RSI: ${v.rsi}</p>
+            <p>RSI: ${v.rsi ?? "calcolo..."}</p>
             <p>Qty: ${v.qty.toFixed(6)}</p>
             <p>Trade: ${v.trade}</p>
         </div>`;

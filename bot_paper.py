@@ -96,7 +96,7 @@ def bot_loop():
 # ===== ROUTE =====
 @app.route("/")
 def home():
-    return send_from_directory(".", "index.html")
+    return ("index.html")
 
 @app.route("/api/status")
 def status():
